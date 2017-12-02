@@ -11,4 +11,4 @@ class Solution(object):
                 pars.pop()
             else:
                 pars.append(c)
-        return len(pars) == 1
+        return (len(pars) == 1)
