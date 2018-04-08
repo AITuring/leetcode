@@ -1,0 +1,315 @@
+from operator import mod
+from numpy import *
+from Cryptodome.Cipher import AES
+from scipy.misc import imread
+from skimage import io,data
+
+
+class prpcrypt:
+    def __init__(self, key):
+        self.key = key
+
+    # 加密函数，如果text不足16位就用空格补足为16位，
+    # 如果大于16当时不是16的倍数，那就补足为16的倍数。
+    def encrypt(self, text):
+        obj = AES.new(self.key.to_bytes(16,'big'), AES.MODE_CBC, b'This is an IV456')
+        ciphertext = obj.encrypt(text.to_bytes(16,'big'))
+        return int.from_bytes(ciphertext, 'big')
+
+
+class Point:
+    def __init__(self, a, b):
+        self.x = a
+        self.y = b
+        self.isInfinite = False
+
+
+def RNG(PK, a, Y, G):
+    SK = PK
+    # A = Point()
+    Z = []
+    pr = 3989
+    eccGroup = computeEccOrder()
+    n = len(eccGroup)
+    for i in range(0, a):
+        # A.x = SK*G.x
+        # A.y = SK*G.y
+        m = int(mod(SK, n - 1))
+        print(m)
+        A = eccGroup[m]
+        B = MUL(A, Y, pr)
+        C = MUL(B, G, pr)
+        Z.append(int(abs(A.x * B.x * C.x)))
+        # print(type(Z[i]))
+        SK = A.y + B.y + C.y
+    return Z
+
+
+def computeEccOrder():
+    pointGroup = []
+    a = 2
+    b = 3
+    pr = 3989
+    G = Point(3,6)
+    n = 1
+    while 1:
+        result = double_and_add(n, G, a, b, pr)
+        pointGroup.append(result)
+        n = n + 1
+        if result.isInfinite:
+            break
+    return pointGroup
+
+
+def MUL(A, B, PR):
+    pr = PR
+    k = mod(((B.y - A.y) / (B.x - A.x)), pr)
+    X = mod((k * k - A.x - B.x), pr)
+    Y = mod((k * (A.x - X) - A.y), pr)
+    R = Point(X, Y)
+    return R
+
+
+def getPrime(n):
+    m = n
+    while not isPrime(m):
+        m = m -1
+    return m
+
+
+def isPrime(n):
+    if n <= 1:
+        return False
+    if n == 2:
+        return True
+    if n % 2 == 0:
+        return False
+    i = 3
+    while i * i <=n:
+        if n % i == 0:
+            return  False
+        i += 2
+    return True
+
+
+def double_add(a, b, pr, P):
+    x = P.x
+    y = P.y
+    lamda = int(mod((3 * (x * x) + a) / (2 * y), pr))
+    m = int(mod(lamda * lamda - 2 * x, pr))
+    n = int(mod(y + lamda * (m - x), pr))
+    R = Point(m, n)
+    if P.y == 0:
+        R.isInfinite = True
+    return R
+
+
+def add(pr, P, Q):
+    if P.isInfinite:
+        return Q
+    if Q.isInfinite:
+        return P
+    lamda = int(mod((P.y - Q.y) / (P.x - Q.x), pr))
+    x = int(mod((lamda *lamda - P.x - Q.x), pr))
+    y = int(mod((P.y + lamda * (x - P.x)),pr))
+    R = Point(x, y)
+    if (-P.y) % pr == Q.y:
+        R.isInfinite = True
+    return R
+
+
+def bits(n):
+    while n:
+        yield n & 1
+        n >>= 1
+
+
+def double_and_add(n, G, a, b, pr):
+    if n == 1:
+        return G
+    isFirst = True
+    result = G
+    addend = G
+    for bit in bits(n):
+        if (bit == 1):
+            if isFirst:
+                result = addend
+                isFirst = False
+            else:
+                result = add(pr, result, addend)
+        addend = double_add(a, b, pr, addend)
+    return result
+
+
+# 传进来的时候就是一维数组
+def matrix2stream(matrix):
+    number = int(len(matrix) / 16)
+    stream = []
+    for i in range(0, number):
+        s = 0;
+        for j in range(0, 15):
+            p = matrix[i * 16 + j]
+            s = s * 256 + p
+        stream.append(s)
+    return stream
+
+
+def reshape(matrix, length, width):
+    result = []
+    for i in range(0, length):
+        for j in range(0, width):
+            row = matrix[i]
+            pixel = row[j]
+            result.append(pixel)
+    return result
+
+
+def div(num1, num2):
+    str_num1 = str(num1)
+    length = len(str_num1)
+    result = 0
+    middle = 0
+    for i in range (0 , length):
+        middle = middle * 10 + int(str_num1[i])
+        result = result * 10 + middle // num2
+        middle = middle % num2
+    return result
+
+
+def combinePixel(p_red, p_green, p_blue):
+    pixel = []
+    pixel.append(p_red)
+    pixel.append(p_green)
+    pixel.append(p_blue)
+    pixel = array(pixel, int)
+    return pixel
+
+
+def combineChannels(C_red, C_green, C_blue, length, width):
+    x = 0; y = 0;
+    cipherImg = []
+    row = []
+    for i in range (0, len(C_red)):
+        red = C_red[i]
+        green = C_green[i]
+        blue = C_blue[i]
+        j = 16
+        while j > 0:
+            p_red = mod(red, 256)
+            p_green = mod(green, 256)
+            p_blue = mod(blue, 256)
+            pixel = combinePixel(p_red, p_green, p_blue)
+            row.append(pixel)
+            y = y + 1
+            if y % width == 0:
+                x = x + 1
+                y = 0
+                cipherImg.append(array(row))
+                row = []
+            red = div(red, 256)
+            green = div(red, 256)
+            blue = div(blue, 256)
+            j = j - 1
+    cipherImg = array(cipherImg)
+    return cipherImg
+
+
+def long_bitor(stream1, stream2):
+    # print("number:    " + str(number))
+    # print(int(stream2))
+    # print(type(stream2[0]))
+    s1 = stream1
+    s2 = stream2
+    result = 0
+    j = 16
+    while j > 0:
+        seg1 = int(mod(s1, 256))
+        seg2 = int(mod(s2, 256))
+        seg = seg1 | seg2
+        result = result * 256 + seg
+        s1 = div(s1, 256)
+        s2 = div(s2, 256)
+        j = j - 1
+    return result
+
+
+def imageEncryption(Mtrix_red, Mtrix_blue, Mtrix_green,Mr, Mg, Mb,FC_red,FC_grn, FC_ble, FC_key, alpha):
+    stream_red = matrix2stream(Mtrix_red)
+    stream_blue = matrix2stream(Mtrix_blue)
+    stream_green = matrix2stream(Mtrix_green)
+    imgSize = len(Mtrix_red)
+    C_red = []
+    C_green = []
+    C_blue = []
+    number = alpha - 1
+    for i in range(0, int(imgSize / 16)):
+        C_red.append(long_bitor(long_bitor(stream_red[i], FC_red), Mr[mod(i, number)]))
+        C_green.append(long_bitor(long_bitor(stream_green[i], FC_grn), Mg[mod(i, number)]))
+        C_blue.append(long_bitor(long_bitor(stream_blue[i], FC_ble), Mb[mod(i, number)]))
+        if i % number == 0:
+            key = FC_ble
+            pc = prpcrypt(FC_ble)
+            FC_red = pc.encrypt(FC_key)
+            FC_grn = long_bitor(FC_grn, FC_red)
+            FC_ble = long_bitor(FC_ble, FC_grn)
+    ciptherImg = combineChannels(C_red, C_green, C_blue, length, width)
+    return ciptherImg
+
+
+def num2bin(num):
+    num = int(num)
+    str = bin(num).replace('0b', '')
+    b = bytes(str, encoding="utf8")
+    return b
+
+
+def img2mtrix(matrix, img, number, length, width):
+    for i in range(0, length):
+        row = img[i]
+        for j in range(0, width):
+            pixel = row[j]
+            matrix.append(pixel[number - 1])
+    return matrix
+
+
+if __name__=='__main__':
+    primarykey = 88962710306127702866241727433142015
+    alpha = 128
+    Y = Point(1041, 1242)
+    G = Point(3, 6)
+    Z = RNG(primarykey, alpha, Y, G)
+    MR = []
+    MG = []
+    MB = []
+    pc = prpcrypt(primarykey)
+    for i in range(0, alpha):
+        # print(Z[i])
+        # print(pc.encrypt(Z[i]))
+        MR.append(pc.encrypt(Z[i]))
+        MG.append(pc.encrypt(MR[i]))
+        MB.append(pc.encrypt(MG[i]))
+    IV = mod(primarykey, alpha)
+    FCkey = Z[IV]
+    FCred = MR[IV]
+    FCgrn = MG[IV]
+    FCble = MB[IV]
+    del(Z[IV])
+    del(MR[IV])
+    del(MG[IV])
+    del(MB[IV])
+    arr_sourceImg = imread("C:\etest.jpg")
+    io.imshow(arr_sourceImg)
+    sourceImg = arr_sourceImg.tolist();
+    # print(type(sourceImg))
+    length = (len(sourceImg))
+    width = (len(sourceImg[0]))
+    matrix_red = []
+    matrix_green = []
+    matrix_blue = []
+    matrix_red = img2mtrix(matrix_red, sourceImg, 1, length, width)
+    matrix_green = img2mtrix(matrix_green, sourceImg, 2, length, width)
+    matrix_blue = img2mtrix(matrix_blue, sourceImg, 3, length, width)
+    cipherImg = imageEncryption(matrix_red, matrix_green, matrix_blue, MR, MG, MB, FCred, FCgrn, FCble, FCkey, alpha)
+    io.imsave('C:\sss\encrypted1.jpg', cipherImg)
+    # print(type(cipherImg))
+    # io.imshow(cipherImg)
