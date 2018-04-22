@@ -5,4 +5,7 @@ def searchInsert(nums, target):
     :type target: int
     :rtype: int
     """
-    a=[]
+    nums=list(nums)
+    for i in nums:
+        if target in nums:
+            print(target.index)
