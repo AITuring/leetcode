@@ -5,3 +5,4 @@ def searchInsert(nums, target):
     :type target: int
     :rtype: int
     """
+    a=[]
