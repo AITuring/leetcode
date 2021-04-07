@@ -1,18 +1,20 @@
-var subsets = function (nums) {
-    const ans = []
-    const n = nums.length
-    for(let mask = 0;mask < (1 << n);++mask){
-        const t = []
-        for(let i = 0;i < n; i++) {
-            if (mask & (1 << i)){
-                t.push(nums[i])
-            }
+var purchasePlans = function(nums, target) {
+    nums.sort((a,b)=>a-b)
+    let count=0
+    let begin=0
+    let end=nums.length-1
+    while(begin<end){
+        let sum=nums[begin]+nums[end]
+        if (sum<=target){
+            count++
+            begin++
+        }else{
+            end--
         }
-        ans.push(t)
     }
-    return ans
-    
-}
+    return count
 
-nums = [1,2,3]
-console.log(subsets(nums))
+};
+
+nums = [2,2,1,9], target = 10
+console.log(purchasePlans(nums,target))
